@@ -12,6 +12,8 @@ import (
 	"errors"
 	"bytes"
 
+	"github.com/MashAliK/gke-pipelines/internal/agent"
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -54,7 +56,6 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
-		// restore default behavior for a second signal
 		signal.Stop(make(chan os.Signal))
 		cancel()
 		klog.Flush()
@@ -118,11 +119,30 @@ func (opt *Options) initDefaults() {
 }
 
 func runRootCommand(ctx context.Context, opt Options, args []string) error {
+	var err error
+
 	if err := resolveKubeConfigPath(&opt); err != nil {
 		return fmt.Errorf("failed to resolve kubeconfig path: %w", err)
 	}
 
 	klog.Info("Application started", "pid", os.Getpid())
+
+	var llmClient gollm.Client
+	llmClient, err = gollm.NewClient(ctx, "")
+	if err != nil {
+        return err
+    }
+    defer llmClient.Close()
+
+	agents := &agent.Agent{
+		LLM:		llmClient,
+
+		Model:		"gemini-2.5-flash",
+
+		Provider: 	"Gemini",
+	}
+
+	err = agents.Init(ctx)
 
 	return nil
 }
