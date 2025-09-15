@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"log"
 	"bytes"
+	"bufio"
 
 	// "github.com/MashAliK/gke-pipelines/internal/agent"
     "github.com/MashAliK/gke-pipelines/internal/client"
@@ -123,7 +124,22 @@ func runRootCommand(ctx context.Context, opt Options, args []string) error {
 	if err != nil {
 		return err
 	}
-	k8sAgent.Run(ctx, "Hello!")
+	defer k8sAgent.Close()
+
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Println("Enter your message (type 'quit' to exit):")
+	for {
+		fmt.Print("> ") // prompt
+		if !scanner.Scan() {
+			break
+		}
+		message := scanner.Text()
+
+		if message == "quit" {
+			break
+		}
+		fmt.Println(k8sAgent.Query(ctx, message))
+	}
 
 	return err
 }

@@ -1,11 +1,9 @@
 package client
 
 import (
-	"os"
 	"fmt"
     "context"
-	"bufio"
-	"time"
+	"strings"
 
     "github.com/MashAliK/gke-pipelines/internal/config"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
@@ -17,7 +15,8 @@ import (
 )
 
 type KubectlClient struct {
-	agent	*agent.Agent
+	agent		*agent.Agent
+	messages	chan string
 }
 
 func NewKubectlClient(ctx context.Context, llmClient *gollm.Client) (*KubectlClient, error) {
@@ -53,56 +52,50 @@ func NewKubectlClient(ctx context.Context, llmClient *gollm.Client) (*KubectlCli
 	}
 	defer k8sAgent.Close()
 
-	return &KubectlClient{
-		agent: k8sAgent,
-	}, nil
-}
+	k8sAgent.Run(ctx, "Hello") // initiate chat
 
-func (c *KubectlClient) Run(ctx context.Context, query string) error {
-	scanner := bufio.NewScanner(os.Stdin)
-
-	c.agent.Run(ctx, query)
-
-	agentExited := make(chan struct{})
+	messagesReceived := make(chan string)
 
 	go func() {
+		var messages []string
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case msg, ok := <-c.agent.Output:
+			case msg, ok := <-k8sAgent.Output:
 				if !ok {
 					return
 				}
-				fmt.Printf("agent output: %+v\n", msg)
 
-				// Check if agent has exited in RunOnce mode
-				if c.agent.Session().AgentState == api.AgentStateExited {
-					fmt.Println("Agent has exited, terminating session")
-					close(agentExited)
-					return
+				m := msg.(*api.Message)
+				if m.Source == api.MessageSourceModel && m.Type == api.MessageTypeText {
+					messages = append(messages, m.Payload.(string))
+				} else if m.Type == api.MessageTypeUserInputRequest {
+					final_message := strings.Join(messages, "\n")
+					messagesReceived <- final_message
+					messages = []string{}
 				}
-
 			}
 		}
 	}()
 
-	go func() {
-		for {
-			if c.agent.Session().AgentState == api.AgentStateDone {
-				time.Sleep(3 * time.Second)
-				fmt.Print("Your message: ")
-				scanner.Scan()
-				query := scanner.Text()
-				c.agent.Input <- &api.UserInputResponse{Query: query}
-			}
-		}
-	}()
+	// remove greeting response from channel
+	first_message := <- messagesReceived
+	fmt.Println(first_message)
 
-	select {
-	case <-ctx.Done():
-		return nil
-	case <-agentExited:
-		return nil
-	}
+	return &KubectlClient{
+		agent: k8sAgent,
+		messages: messagesReceived,
+	}, nil
+}
+
+func (c *KubectlClient) Query(ctx context.Context, query string) string {
+	c.agent.Input <- &api.UserInputResponse{Query: query}
+	return <- c.messages
+}
+
+func (c *KubectlClient) Close() error {
+	c.agent.Input <- &api.UserInputResponse{Query: "exit"} // end conversation
+	close(c.messages)
+	return nil
 }
