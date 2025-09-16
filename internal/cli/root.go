@@ -10,8 +10,9 @@ import (
 	"bytes"
 	"bufio"
 
-	// "github.com/MashAliK/gke-pipelines/internal/agent"
+	"github.com/MashAliK/gke-pipelines/internal/agent"
     "github.com/MashAliK/gke-pipelines/internal/client"
+	"github.com/MashAliK/gke-pipelines/internal/tool"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -110,15 +111,18 @@ func runRootCommand(ctx context.Context, opt Options, args []string) error {
     }
     defer llmClient.Close()
 
-	// agents := &agent.Agent{
-	// 	LLM:		llmClient,
+	agentTools := []*gollm.FunctionDefinition{tool.NewKubectlAITool()}
 
-	// 	Model:		"gemini-2.5-flash",
+	agent := &agent.Agent{
+		LLM:		llmClient,
 
-	// 	Provider: 	"Gemini",
-	// }
+		Model:		"gemini-2.5-flash",
 
-	// err = agents.Init(ctx)
+		Provider: 	"Gemini",
+
+		Tools: agentTools,
+	}
+	agent.Init(ctx)
 
 	k8sAgent, err := client.NewKubectlClient(ctx, &llmClient)
 	if err != nil {
@@ -138,7 +142,7 @@ func runRootCommand(ctx context.Context, opt Options, args []string) error {
 		if message == "quit" {
 			break
 		}
-		fmt.Println(k8sAgent.Query(ctx, message))
+		agent.SendMessage(ctx, message)
 	}
 
 	return err

@@ -13,24 +13,41 @@ type Agent struct {
 	Model string
 
 	Provider string
+
+	Chat gollm.Chat
+
+	Tools []*gollm.FunctionDefinition
 }
 
-func (s* Agent) Init(ctx context.Context) error {
-	const system_prompt = "Respond in pig latin."
+func (a* Agent) Init(ctx context.Context) error {
+	const system_prompt = "Assist the user by calling the relevant tools."
 
-    // Start a chat conversation
-    chat := s.LLM.StartChat(system_prompt, s.Model)
+    a.Chat = a.LLM.StartChat(system_prompt, a.Model)
     
-    // Send a message
-    response, err := chat.Send(ctx, "Hello, how are you?")
-    if err != nil {
-        return err
+	a.Chat.SetFunctionDefinitions(a.Tools)
+
+	return nil
+}
+
+func (a* Agent) SendMessage(ctx context.Context, message string) error {
+	response, err := a.Chat.Send(ctx, message)
+	if err != nil {
+		return err
 	}
 
-	// Print the response
-    for _, candidate := range response.Candidates() {
-        fmt.Println(candidate.String())
-    }
+	for _, candidate := range response.Candidates() {
+		for _, part := range candidate.Parts() {
+			if text, ok := part.AsText(); ok {
+				fmt.Print("Text response: ")
+				fmt.Println(text)
+			}
 
+			if functionCalls, ok := part.AsFunctionCalls(); ok {
+				for _, call := range functionCalls {
+					fmt.Printf("Function call: %s with args %v\n", call.Name, call.Arguments)
+				}
+			}
+		}
+	}
 	return nil
 }
