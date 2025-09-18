@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"os"
 	"fmt"
 	"context"
 
+	"github.com/MashAliK/gke-pipelines/internal/tool"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	exttools "github.com/GoogleCloudPlatform/kubectl-ai/pkg/tools"
 )
 
 type Agent struct {
@@ -15,16 +18,21 @@ type Agent struct {
 	Provider string
 
 	Chat gollm.Chat
-
-	Tools []*gollm.FunctionDefinition
 }
 
 func (a* Agent) Init(ctx context.Context) error {
-	const system_prompt = "Assist the user by calling the relevant tools."
+	system_prompt, err := a.getPrompt()
+	if err != nil {
+		return err
+	}
+
+	bashtool := &exttools.BashTool{}
+
+	agentTools := []*gollm.FunctionDefinition{tool.NewKubectlAITool(), bashtool.FunctionDefinition()}
 
     a.Chat = a.LLM.StartChat(system_prompt, a.Model)
     
-	a.Chat.SetFunctionDefinitions(a.Tools)
+	a.Chat.SetFunctionDefinitions(agentTools)
 
 	return nil
 }
@@ -50,4 +58,14 @@ func (a* Agent) SendMessage(ctx context.Context, message string) error {
 		}
 	}
 	return nil
+}
+
+func (a* Agent) getPrompt() (string, error) {
+	content, err := os.ReadFile("./internal/agent/system_prompt.txt")
+	if err != nil {
+		return "", err
+	}
+
+	text := string(content)
+	return text, err
 }

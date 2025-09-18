@@ -12,7 +12,6 @@ import (
 
 	"github.com/MashAliK/gke-pipelines/internal/agent"
     "github.com/MashAliK/gke-pipelines/internal/client"
-	"github.com/MashAliK/gke-pipelines/internal/tool"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -111,18 +110,17 @@ func runRootCommand(ctx context.Context, opt Options, args []string) error {
     }
     defer llmClient.Close()
 
-	agentTools := []*gollm.FunctionDefinition{tool.NewKubectlAITool()}
-
 	agent := &agent.Agent{
 		LLM:		llmClient,
 
 		Model:		"gemini-2.5-flash",
 
 		Provider: 	"Gemini",
-
-		Tools: agentTools,
 	}
-	agent.Init(ctx)
+	err = agent.Init(ctx)
+	if err != nil {
+		return err
+	}
 
 	k8sAgent, err := client.NewKubectlClient(ctx, &llmClient)
 	if err != nil {
