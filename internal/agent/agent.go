@@ -1,14 +1,17 @@
 package agent
 
 import (
-	"os"
-	"fmt"
+	// "fmt"
 	"context"
+	_ "embed"
 
 	"github.com/MashAliK/gke-pipelines/internal/tool"
 	"github.com/MashAliK/gke-pipelines/internal/client"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 )
+
+//go:embed system_prompt.txt
+var SystemPrompt string
 
 type Agent struct {
 	LLM gollm.Client
@@ -23,10 +26,7 @@ type Agent struct {
 }
 
 func (a* Agent) Init(ctx context.Context) error {
-	system_prompt, err := a.getPrompt()
-	if err != nil {
-		return err
-	}
+	system_prompt := a.getPrompt()
 
 	agentTools := []*gollm.FunctionDefinition{tool.NewKubectlAITool()}
 
@@ -37,10 +37,10 @@ func (a* Agent) Init(ctx context.Context) error {
 	return nil
 }
 
-func (a* Agent) SendMessage(ctx context.Context, message string) error {
+func (a* Agent) SendMessage(ctx context.Context, message string) (string, error) {
 	response, err := a.Chat.Send(ctx, message)
 	if err != nil {
-		return err
+		return "", err
 	}
 	
 	for newMessageSent := true; newMessageSent; {
@@ -48,14 +48,15 @@ func (a* Agent) SendMessage(ctx context.Context, message string) error {
 		for _, candidate := range response.Candidates() {
 			for _, part := range candidate.Parts() {
 				if text, ok := part.AsText(); ok {
-					fmt.Print("Text response: ")
-					fmt.Println(text)
+					// fmt.Print("Text response: ")
+					// fmt.Println(text)
+					return text, nil
 				}
 
 				if functionCalls, ok := part.AsFunctionCalls(); ok {
 					for _, call := range functionCalls {
 						if call.Name == "kubectl-ai" {
-							fmt.Printf("Making tool call: %s\n", call.Arguments["Intent"].(string))
+							// fmt.Printf("Making tool call: %s\n", call.Arguments["Intent"].(string))
 							result := a.KubectlAIClient.Query(ctx, call.Arguments["Intent"].(string))
 							response, err = a.Chat.Send(ctx, gollm.FunctionCallResult{
 								ID:     call.ID,
@@ -63,26 +64,21 @@ func (a* Agent) SendMessage(ctx context.Context, message string) error {
 								Result: map[string]any{"response": result},
 							})
 							if err != nil {
-								return err
+								return "", err
 							}
 							newMessageSent = true
-						} else {
-							fmt.Printf("Function call: %s with args %v\n", call.Name, call.Arguments)
-						}
+						} 
+						// else {
+						// 	fmt.Printf("Function call: %s with args %v\n", call.Name, call.Arguments)
+						// }
 					}
 				}
 			}
 		}
 	}
-	return nil
+	return "", nil
 }
 
-func (a* Agent) getPrompt() (string, error) {
-	content, err := os.ReadFile("./internal/agent/system_prompt.txt")
-	if err != nil {
-		return "", err
-	}
-
-	text := string(content)
-	return text, err
+func (a* Agent) getPrompt() (string) {
+	return SystemPrompt
 }

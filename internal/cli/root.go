@@ -13,6 +13,8 @@ import (
 	"github.com/MashAliK/gke-pipelines/internal/agent"
     "github.com/MashAliK/gke-pipelines/internal/client"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	"github.com/metoro-io/mcp-golang"
+	"github.com/metoro-io/mcp-golang/transport/stdio"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -70,6 +72,14 @@ func buildRootCommand(opt *Options) (*cobra.Command, error) {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("version: %s\ncommit: %s\ndate: %s\n", version, commit, date)
 			os.Exit(0)
+		},
+	})
+
+	rootCmd.AddCommand(&cobra.Command{
+		Use: "mcp",
+		Short: "Run the application as a local MCP server.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMCP(cmd.Context(), *opt)
 		},
 	})
 
@@ -148,6 +158,64 @@ func runRootCommand(ctx context.Context, opt Options, args []string) error {
 	return err
 }
 
+type GKEQueryArguments struct {
+	Query	string 	`json:"query" jsonschema:"required,description=The task for the GKE agent to perform"`
+}
+
+func runMCP(ctx context.Context, opt Options) error {var llmClient gollm.Client
+	var err error
+
+	if err := resolveKubeConfigPath(&opt); err != nil {
+		return fmt.Errorf("failed to resolve kubeconfig path: %w", err)
+	}
+
+	klog.Info("Application started", "pid", os.Getpid())
+
+	llmClient, err = gollm.NewClient(ctx, "")
+	if err != nil {
+        return err
+    }
+    defer llmClient.Close()
+
+	k8sAgent, err := client.NewKubectlClient(ctx, &llmClient)
+	if err != nil {
+		return err
+	}
+	defer k8sAgent.Close()	
+	
+	agent := &agent.Agent{
+		LLM:		llmClient,
+
+		Model:		"gemini-2.5-flash",
+
+		Provider: 	"Gemini",
+
+		KubectlAIClient: k8sAgent,
+	}
+	err = agent.Init(ctx)
+	if err != nil {
+		return err
+	}
+
+	done := make(chan struct{})
+
+	server := mcp_golang.NewServer(stdio.NewStdioServerTransport())
+	err = server.RegisterTool("query-gke", "Ask questions or perform tasks related to the user's GKE cluster.", func(arguments GKEQueryArguments) (*mcp_golang.ToolResponse, error) {
+		message, err := agent.SendMessage(ctx, arguments.Query)
+		return mcp_golang.NewToolResponse(mcp_golang.NewTextContent(message)), err
+	})
+	if err != nil {
+		return err
+	}
+
+	err = server.Serve()
+	if err != nil {
+		return err
+	}
+	
+	<- done
+	return err
+}
 
 // The following logging is from kubectl-ai for consistency
 func resolveKubeConfigPath(opt *Options) error {
