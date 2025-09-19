@@ -110,23 +110,25 @@ func runRootCommand(ctx context.Context, opt Options, args []string) error {
     }
     defer llmClient.Close()
 
+	k8sAgent, err := client.NewKubectlClient(ctx, &llmClient)
+	if err != nil {
+		return err
+	}
+	defer k8sAgent.Close()	
+	
 	agent := &agent.Agent{
 		LLM:		llmClient,
 
 		Model:		"gemini-2.5-flash",
 
 		Provider: 	"Gemini",
+
+		KubectlAIClient: k8sAgent,
 	}
 	err = agent.Init(ctx)
 	if err != nil {
 		return err
 	}
-
-	k8sAgent, err := client.NewKubectlClient(ctx, &llmClient)
-	if err != nil {
-		return err
-	}
-	defer k8sAgent.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Enter your message (type 'quit' to exit):")

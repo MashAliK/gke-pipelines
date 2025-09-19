@@ -6,8 +6,8 @@ import (
 	"context"
 
 	"github.com/MashAliK/gke-pipelines/internal/tool"
+	"github.com/MashAliK/gke-pipelines/internal/client"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
-	exttools "github.com/GoogleCloudPlatform/kubectl-ai/pkg/tools"
 )
 
 type Agent struct {
@@ -18,6 +18,8 @@ type Agent struct {
 	Provider string
 
 	Chat gollm.Chat
+
+	KubectlAIClient *client.KubectlClient
 }
 
 func (a* Agent) Init(ctx context.Context) error {
@@ -26,9 +28,7 @@ func (a* Agent) Init(ctx context.Context) error {
 		return err
 	}
 
-	bashtool := &exttools.BashTool{}
-
-	agentTools := []*gollm.FunctionDefinition{tool.NewKubectlAITool(), bashtool.FunctionDefinition()}
+	agentTools := []*gollm.FunctionDefinition{tool.NewKubectlAITool()}
 
     a.Chat = a.LLM.StartChat(system_prompt, a.Model)
     
@@ -42,17 +42,34 @@ func (a* Agent) SendMessage(ctx context.Context, message string) error {
 	if err != nil {
 		return err
 	}
+	
+	for newMessageSent := true; newMessageSent; {
+		newMessageSent = false
+		for _, candidate := range response.Candidates() {
+			for _, part := range candidate.Parts() {
+				if text, ok := part.AsText(); ok {
+					fmt.Print("Text response: ")
+					fmt.Println(text)
+				}
 
-	for _, candidate := range response.Candidates() {
-		for _, part := range candidate.Parts() {
-			if text, ok := part.AsText(); ok {
-				fmt.Print("Text response: ")
-				fmt.Println(text)
-			}
-
-			if functionCalls, ok := part.AsFunctionCalls(); ok {
-				for _, call := range functionCalls {
-					fmt.Printf("Function call: %s with args %v\n", call.Name, call.Arguments)
+				if functionCalls, ok := part.AsFunctionCalls(); ok {
+					for _, call := range functionCalls {
+						if call.Name == "kubectl-ai" {
+							fmt.Printf("Making tool call: %s\n", call.Arguments["Intent"].(string))
+							result := a.KubectlAIClient.Query(ctx, call.Arguments["Intent"].(string))
+							response, err = a.Chat.Send(ctx, gollm.FunctionCallResult{
+								ID:     call.ID,
+								Name:   call.Name,
+								Result: map[string]any{"response": result},
+							})
+							if err != nil {
+								return err
+							}
+							newMessageSent = true
+						} else {
+							fmt.Printf("Function call: %s with args %v\n", call.Name, call.Arguments)
+						}
+					}
 				}
 			}
 		}
