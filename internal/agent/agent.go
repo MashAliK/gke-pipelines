@@ -1,13 +1,14 @@
 package agent
 
 import (
-	// "fmt"
+	"fmt"
 	"context"
 	_ "embed"
+	"strings"
 
-	"github.com/MashAliK/gke-pipelines/internal/tool"
-	"github.com/MashAliK/gke-pipelines/internal/client"
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	"github.com/MashAliK/gke-pipelines/internal/client"
+	"github.com/MashAliK/gke-pipelines/internal/tool"
 )
 
 //go:embed system_prompt.txt
@@ -43,20 +44,18 @@ func (a* Agent) SendMessage(ctx context.Context, message string) (string, error)
 		return "", err
 	}
 	
+	var messages strings.Builder
 	for newMessageSent := true; newMessageSent; {
 		newMessageSent = false
 		for _, candidate := range response.Candidates() {
 			for _, part := range candidate.Parts() {
 				if text, ok := part.AsText(); ok {
-					// fmt.Print("Text response: ")
-					// fmt.Println(text)
-					return text, nil
+					messages.WriteString(fmt.Sprintf("%s\n", text))
 				}
 
 				if functionCalls, ok := part.AsFunctionCalls(); ok {
 					for _, call := range functionCalls {
 						if call.Name == "kubectl-ai" {
-							// fmt.Printf("Making tool call: %s\n", call.Arguments["Intent"].(string))
 							result := a.KubectlAIClient.Query(ctx, call.Arguments["Intent"].(string))
 							response, err = a.Chat.Send(ctx, gollm.FunctionCallResult{
 								ID:     call.ID,
@@ -68,15 +67,12 @@ func (a* Agent) SendMessage(ctx context.Context, message string) (string, error)
 							}
 							newMessageSent = true
 						} 
-						// else {
-						// 	fmt.Printf("Function call: %s with args %v\n", call.Name, call.Arguments)
-						// }
 					}
 				}
 			}
 		}
 	}
-	return "", nil
+	return messages.String(), nil
 }
 
 func (a* Agent) getPrompt() (string) {

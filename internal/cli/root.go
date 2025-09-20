@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"log"
 	"bytes"
-	"bufio"
 
 	"github.com/MashAliK/gke-pipelines/internal/agent"
     "github.com/MashAliK/gke-pipelines/internal/client"
@@ -60,9 +59,9 @@ var (
 func buildRootCommand(opt *Options) (*cobra.Command, error) {
 	rootCmd := &cobra.Command{
 		Use: "gke-pipelines",
-		Short: "A CLI tool using LLMs to help developers write and deploy their work on GKE.",
-		RunE: func(cmd *cobra.Command, args[]string) error {
-			return runRootCommand(cmd.Context(), *opt, args)
+		Short: "Run a gke-pipelines local MCP server.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMCP(cmd.Context(), *opt)
 		},
 	}
 
@@ -72,14 +71,6 @@ func buildRootCommand(opt *Options) (*cobra.Command, error) {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("version: %s\ncommit: %s\ndate: %s\n", version, commit, date)
 			os.Exit(0)
-		},
-	})
-
-	rootCmd.AddCommand(&cobra.Command{
-		Use: "mcp",
-		Short: "Run the application as a local MCP server.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMCP(cmd.Context(), *opt)
 		},
 	})
 
@@ -102,60 +93,6 @@ func (opt *Options) bindCLIFlags(f *pflag.FlagSet) error {
 
 func (opt *Options) initDefaults() {
 	opt.KubeConfigPath = ""
-}
-
-func runRootCommand(ctx context.Context, opt Options, args []string) error {
-	var err error
-
-	if err := resolveKubeConfigPath(&opt); err != nil {
-		return fmt.Errorf("failed to resolve kubeconfig path: %w", err)
-	}
-
-	klog.Info("Application started", "pid", os.Getpid())
-
-	var llmClient gollm.Client
-	llmClient, err = gollm.NewClient(ctx, "")
-	if err != nil {
-        return err
-    }
-    defer llmClient.Close()
-
-	k8sAgent, err := client.NewKubectlClient(ctx, &llmClient)
-	if err != nil {
-		return err
-	}
-	defer k8sAgent.Close()	
-	
-	agent := &agent.Agent{
-		LLM:		llmClient,
-
-		Model:		"gemini-2.5-flash",
-
-		Provider: 	"Gemini",
-
-		KubectlAIClient: k8sAgent,
-	}
-	err = agent.Init(ctx)
-	if err != nil {
-		return err
-	}
-
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("Enter your message (type 'quit' to exit):")
-	for {
-		fmt.Print("> ") // prompt
-		if !scanner.Scan() {
-			break
-		}
-		message := scanner.Text()
-
-		if message == "quit" {
-			break
-		}
-		agent.SendMessage(ctx, message)
-	}
-
-	return err
 }
 
 type GKEQueryArguments struct {
@@ -186,7 +123,7 @@ func runMCP(ctx context.Context, opt Options) error {var llmClient gollm.Client
 	agent := &agent.Agent{
 		LLM:		llmClient,
 
-		Model:		"gemini-2.5-flash",
+		Model:		"gemini-2.5-pro",
 
 		Provider: 	"Gemini",
 
@@ -200,10 +137,14 @@ func runMCP(ctx context.Context, opt Options) error {var llmClient gollm.Client
 	done := make(chan struct{})
 
 	server := mcp_golang.NewServer(stdio.NewStdioServerTransport())
-	err = server.RegisterTool("query-gke", "Ask questions or perform tasks related to the user's GKE cluster.", func(arguments GKEQueryArguments) (*mcp_golang.ToolResponse, error) {
-		message, err := agent.SendMessage(ctx, arguments.Query)
-		return mcp_golang.NewToolResponse(mcp_golang.NewTextContent(message)), err
-	})
+	err = server.RegisterTool(
+		"query-gke",
+		"Send query to an AI agent related to the user's Google Kubernetes Engine cluster. This tool provide a detailed breakdown by running commands within the Kubernetes cluster, this could include seeing logs of pods or viewing the overall state of the cluster. Conversation history is remembered so follow-up questions can be asked. If a follow-up question is asked provide the response in the query of a subsequent tool call.", 
+		func(arguments GKEQueryArguments) (*mcp_golang.ToolResponse, error) {
+			message, err := agent.SendMessage(ctx, arguments.Query)
+			return mcp_golang.NewToolResponse(mcp_golang.NewTextContent(message)), err
+		},
+	)
 	if err != nil {
 		return err
 	}

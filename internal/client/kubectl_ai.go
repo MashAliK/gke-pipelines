@@ -69,7 +69,6 @@ func NewKubectlClient(ctx context.Context, llmClient *gollm.Client) (*KubectlCli
 
 				m := msg.(*api.Message)
 				if m.Source == api.MessageSourceModel && m.Type == api.MessageTypeText {
-					// fmt.Printf("Kubectl-ai: %s\n", m.Payload.(string))
 					messages = append(messages, m.Payload.(string))
 				} else if m.Type == api.MessageTypeUserInputRequest {
 					final_message := strings.Join(messages, "\n")
