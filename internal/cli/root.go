@@ -125,7 +125,7 @@ func runMCP(ctx context.Context, opt Options) error {var llmClient gollm.Client
 
 		Model:		"gemini-2.5-pro",
 
-		Provider: 	"Gemini",
+		Provider: 	"gemini",
 
 		KubectlAIClient: k8sAgent,
 	}

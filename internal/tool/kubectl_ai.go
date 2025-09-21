@@ -11,11 +11,12 @@ func NewKubectlAITool() *gollm.FunctionDefinition {
 		Parameters: &gollm.Schema{
 			Type: gollm.TypeObject,
 			Properties: map[string]*gollm.Schema{
-				"Intent": {
+				"intent": {
 					Type:        gollm.TypeString,
-					Description: "The task for the kubernetes agent to complete.",
+					Description: "The task for the kubernetes agent to complete. Note: does not support retrieving logs",
 				},
         	},
+			Required: []string{"intent"},
 		},
 	}
 }

@@ -53,7 +53,7 @@ type KubectlAIOptions struct {
 
 func (o *KubectlAIOptions) InitDefaults() {
 	o.ProviderID = "gemini"
-	o.ModelID = "gemini-2.5-flash"
+	o.ModelID = "gemini-2.5-pro"
 	
 	o.SkipPermissions = false
 	o.MCPServer = false

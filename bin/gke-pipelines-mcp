@@ -1,0 +1,4 @@
+#!/bin/bash
+export PATH="$HOME/google-cloud-sdk/bin:$PATH"
+exec "$(dirname "$0")/gke-pipelines" "$@"
+
